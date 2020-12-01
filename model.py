@@ -8,7 +8,7 @@ class RZLinear(nn.Linear):
         self.alpha = nn.Parameter(torch.tensor(start_alpha))
 
     def forward(self, x):
-        return x + self.alpha * super().forward(x)
+        return x + self.alpha * F.elu(super().forward(x))
 
 class RZConv2d(nn.Conv2d):
     def __init__(self, *args, start_alpha=0.0, **kwargs):
@@ -16,7 +16,7 @@ class RZConv2d(nn.Conv2d):
         self.alpha = nn.Parameter(torch.tensor(start_alpha))
 
     def forward(self, x):
-        return x + self.alpha * super().forward(x)
+        return x + self.alpha * F.elu(super().forward(x))
 
 # TODO: Transformer Encoder / Decoder Layer with ReZero
 
