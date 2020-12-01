@@ -3,25 +3,34 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class RZLinear(nn.Linear):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, start_alpha=0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.alpha = nn.Parameter(torch.tensor(start_alpha))
 
     def forward(self, x):
-        return x
+        return x + self.alpha * super().forward(x)
 
 class RZConv2d(nn.Conv2d):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, start_alpha=0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.alpha = nn.Parameter(torch.tensor(start_alpha))
 
     def forward(self, x):
-        return x
+        return x + self.alpha * super().forward(x)
 
-class RZMultiHeadAttention(nn.MultiheadAttention):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x
+# TODO: Transformer Encoder / Decoder Layer with ReZero
 
 if __name__ == "__main__":
-    print("Aloha, World!")
+    x = torch.randn(1, 8)
+    l = RZLinear(8, 8)
+    y = l(x)
+
+    print(y)
+    print(y.shape)
+
+    x = torch.randn(1, 1, 8, 8)
+    l = RZConv2d(1, 8, 3, padding=1)
+    y = l(x)
+
+    print(y)
+    print(y.shape)
