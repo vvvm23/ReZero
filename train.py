@@ -8,24 +8,19 @@ import matplotlib.pyplot as plt
 import tqdm
 import time
 
-from model import RZLinear, RZConv2d
+from model import ResNet
 
 TASK = 'cifar10'
 TRY_CUDA = True
-BATCH_SIZE = 512
-ALPHA = 1e-4
+BATCH_SIZE = 128
+ALPHA = 0.1
 
-NB_EPOCHS = 1000
-EARLY_STOP = True
+NB_EPOCHS = 200
+EARLY_STOP = False
 EARLY_STOP_THRESHOLD = 5
 EARLY_STOP_EPS = 5e-3
 
-MODEL_SAVING = True
 DEBUG = False
-
-IN_CHANNELS = 32
-NB_DOWN_RZ = 24
-NB_STATIC_RZ = 24
 
 info = lambda s: print(f"\33[92m> {s}\33[0m")
 error = lambda s: print(f"\33[31m! {s}\33[0m")
@@ -42,42 +37,17 @@ def get_device():
     error("Falling back to default device.")
     return torch.device('cpu')
 
-def create_down_block(in_channels, out_channels, rz_layers):
-    layers = []
-    layers.append(nn.Conv2d(in_channels, out_channels, 3, padding=1))
-    layers.append(nn.MaxPool2d(2))
-    for _ in range(rz_layers):
-        layers.append(RZConv2d(out_channels, out_channels, 3, padding=1))
-    return nn.Sequential(*layers)
-
 def create_model(task):
-    layers = []
     if task == 'mnist':
-        layers.append(create_down_block(1, IN_CHANNELS, NB_DOWN_RZ))
-        layers.append(create_down_block(IN_CHANNELS, IN_CHANNELS*2, NB_DOWN_RZ))
-        for _ in range(NB_STATIC_RZ):
-            layers.append(RZConv2d(IN_CHANNELS*2, IN_CHANNELS*2, 3, padding=1))
-        layers.append(nn.Flatten())
-        layers.append(nn.Linear(IN_CHANNELS*2*7*7, 256))
-        layers.append(nn.Linear(256, 10))
-        layers.append(nn.Softmax(dim=-1))
+        model = ResNet(1, 18, 10)
     elif task == 'cifar10':
-        layers.append(create_down_block(3, IN_CHANNELS, NB_DOWN_RZ))
-        layers.append(create_down_block(IN_CHANNELS, IN_CHANNELS*2, NB_DOWN_RZ))
-        layers.append(create_down_block(IN_CHANNELS*2, IN_CHANNELS*4, NB_DOWN_RZ))
-        layers.append(create_down_block(IN_CHANNELS*4, IN_CHANNELS*8, NB_DOWN_RZ))
-        for _ in range(NB_STATIC_RZ):
-            layers.append(RZConv2d(IN_CHANNELS*8, IN_CHANNELS*8, 3, padding=1))
-        layers.append(nn.Flatten())
-        layers.append(nn.Linear(IN_CHANNELS*8*2*2, 128))
-        layers.append(nn.Linear(128, 10))
-        layers.append(nn.Softmax(dim=-1))
+        model = ResNet(3, 18, 10)
     else:
         error(f"Unrecognised task {task}!")
         error("Exiting..\n")
         exit()
 
-    return nn.Sequential(*layers)
+    return model
 
 def load_dataset(task, batch_size):
     if task == 'mnist':
@@ -140,7 +110,8 @@ if __name__ == "__main__":
     model = create_model(TASK).to(device)
     info(f"Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}\n")
 
-    optim = torch.optim.Adam(model.parameters(), lr=ALPHA)
+    optim = torch.optim.SGD(model.parameters(), lr=ALPHA, momentum=0.9, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[100, 150], gamma=0.1)
     crit = nn.CrossEntropyLoss()
 
     best_loss = 999.9
@@ -154,14 +125,17 @@ if __name__ == "__main__":
         info(f"Evaluation Loss: {eval_loss}")
         info(f"Evaluation Accuracy: {eval_accuracy:.2f}%\n")
 
-        if eval_loss <= best_loss - EARLY_STOP_EPS:
-            debug("New best loss, resetting counter")
-            best_loss = eval_loss
-            loss_fail_count = 0
-        else:
-            debug("Best loss not beat, increasing counter")
-            loss_fail_count += 1
+        if EARLY_STOP:
+            if eval_loss <= best_loss - EARLY_STOP_EPS:
+                debug("New best loss, resetting counter")
+                best_loss = eval_loss
+                loss_fail_count = 0
+            else:
+                debug("Best loss not beat, increasing counter")
+                loss_fail_count += 1
 
-        if EARLY_STOP and loss_fail_count >= EARLY_STOP_THRESHOLD:
-            info("Early stopping threshold reached.")
-            break
+            if EARLY_STOP and loss_fail_count >= EARLY_STOP_THRESHOLD:
+                info("Early stopping threshold reached.")
+                break
+
+        scheduler.step()

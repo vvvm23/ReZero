@@ -19,9 +19,20 @@ class RZLinear(nn.Linear):
     # def forward(self, x):
         # return x + self.alpha * F.elu(self.bn(super().forward(x)))
 
+class LambdaLayer(nn.Module):
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
+
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
+        self.shortcut = nn.Sequential()
+        if stride != 1:
+            self.shortcut = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, out_channels//4, out_channels//4), "constant", 0))
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, stride=stride, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
@@ -35,7 +46,7 @@ class ResBlock(nn.Module):
         self.alpha = nn.Parameter(torch.tensor(0.0))
 
     def forward(self, x):
-        out = self.conv2(self.conv1(x)) * self.alpha + x
+        out = self.conv2(self.conv1(x)) * self.alpha + self.shortcut(x)
         return out
 
 class ResNet(nn.Module):
@@ -50,17 +61,17 @@ class ResNet(nn.Module):
             layer1.append(ResBlock(16, 16))
         self.layer1 = nn.Sequential(*layer1)
 
-        layer2 = [nn.MaxPool2d(2), ResBlock(16, 32)]
+        layer2 = [ResBlock(16, 32, stride=2)]
         for _ in range(nb_blocks - 1):
             layer2.append(ResBlock(32, 32))
         self.layer2 = nn.Sequential(*layer2)
 
-        layer3 = [nn.MaxPool2d(2), ResBlock(32, 64)]
+        layer3 = [ResBlock(32, 64, stride=2)]
         for _ in range(nb_blocks - 1):
             layer3.append(ResBlock(64, 64))
         self.layer3 = nn.Sequential(*layer3)
 
-        self.linear(64, nb_out)
+        self.linear = nn.Linear(64, nb_out)
 
     def forward(self, x):
         x = F.relu(self.bn_in(self.conv_in(x)))
